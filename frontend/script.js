@@ -3,6 +3,15 @@ let selectedAuth = "";
 let isModalAdvOpen = false;
 let currentConnectedSSID = "";
 
+// Función global para manejar la expulsión (Efecto Whatsapp)
+function handleAuthError(res) {
+    if (res.status === 401) {
+        window.location.href = "/login";
+        return true; // Retorna true si hubo error de autenticación
+    }
+    return false;
+}
+
 async function login() {
     const user = document.getElementById("user").value;
     const pass = document.getElementById("pass").value;
@@ -38,6 +47,8 @@ async function loadSavedNetworks() {
     
     try {
         const res = await fetch("/api/wifi/saved");
+        if(handleAuthError(res)) return; // Expulsa si es 401
+
         const nets = await res.json();
         list.innerHTML = "";
         if(nets.length === 0) {
@@ -65,11 +76,12 @@ async function loadSavedNetworks() {
 
 async function forgetNetwork(ssid) {
     if(!confirm(`¿Eliminar la red ${ssid}?`)) return;
-    await fetch("/api/wifi/forget", {
+    const res = await fetch("/api/wifi/forget", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({ ssid })
     });
+    if(handleAuthError(res)) return;
     loadSavedNetworks();
 }
 
@@ -80,6 +92,8 @@ async function scanWifi() {
     list.innerHTML = "<li>Buscando redes...</li>";
     try {
         const res = await fetch("/api/wifi/scan");
+        if(handleAuthError(res)) return;
+
         const nets = await res.json();
         list.innerHTML = "";
         
@@ -143,8 +157,7 @@ function openConnect(ssid, auth) {
     document.getElementById("wifi-pass").value = "";
     document.getElementById("wifi-user").value = "";
     document.getElementById("wifi-anon").value = "";
-    // Asegurarse de que el modal vuelve a ocultar la contraseña por defecto
-    document.getElementById("wifi-pass").type = "password"; 
+    document.getElementById("wifi-pass").type = "password";
     
     document.getElementById("modal").style.display = "flex";
 }
@@ -161,6 +174,8 @@ async function confirmConnect() {
     const res = await fetch("/api/wifi/connect", {
         method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)
     });
+    if(handleAuthError(res)) return;
+
     if(res.ok) {
         alert("Conectando y guardando red. (El AP se apagará automáticamente al conectar).");
         setTimeout(loadSavedNetworks, 2000);
@@ -172,6 +187,8 @@ async function checkApStatus() {
     if(!apToggle) return;
     try {
         const res = await fetch("/api/wifi/ap-status");
+        if(handleAuthError(res)) return;
+
         if(res.ok) {
             const data = await res.json();
             apToggle.checked = data.enabled;
@@ -181,9 +198,10 @@ async function checkApStatus() {
 
 async function toggleAP(checkbox) {
     const enable = checkbox.checked;
-    await fetch("/api/wifi/ap-toggle", {
+    const res = await fetch("/api/wifi/ap-toggle", {
         method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ enable })
     });
+    handleAuthError(res);
 }
 
 function toggleApPassword() {
@@ -194,6 +212,8 @@ function toggleApPassword() {
 async function loadApConfig() {
     try {
         const res = await fetch("/api/wifi/ap-config");
+        if(handleAuthError(res)) return;
+
         if(res.ok) {
             const data = await res.json();
             document.getElementById("ap-config-ssid").value = data.ssid;
@@ -218,6 +238,8 @@ async function saveApConfig() {
         const res = await fetch("/api/wifi/ap-config", {
             method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ ssid, pass, open })
         });
+        if(handleAuthError(res)) return;
+
         if(res.ok) {
             alert("Zona Portátil actualizada y guardada.");
             document.getElementById("ap-toggle").checked = true;
@@ -236,6 +258,8 @@ async function logout() {
 async function updateSystemStatus() {
     try {
         const res = await fetch("/api/system/status");
+        if(handleAuthError(res)) return; // <-- ESTO EXPUlSARA AL USUARIO AUTOMÁTICAMENTE A LOS 3 SEGS
+
         if(res.ok) {
             const data = await res.json();
             
@@ -297,7 +321,6 @@ async function updateSystemStatus() {
     } catch(e) {}
 }
 
-// --- NUEVO: FUNCIÓN PARA MOSTRAR/OCULTAR CONTRASEÑA ---
 function togglePasswordVisibility(inputId) {
     const input = document.getElementById(inputId);
     if (input.type === "password") {
@@ -315,6 +338,6 @@ if (document.getElementById("ap-toggle")) {
 }
 
 if (document.getElementById("sys-wifi-ssid")) {
-    updateSystemStatus(); 
-    setInterval(updateSystemStatus, 3000); 
+    updateSystemStatus();
+    setInterval(updateSystemStatus, 3000);
 }
