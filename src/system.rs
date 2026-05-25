@@ -1,15 +1,42 @@
 use serde::Serialize;
 use crate::wifi::init::SharedWifi;
 use esp_idf_svc::wifi::Configuration;
+use esp_idf_svc::nvs::EspDefaultNvsPartition;
+use crate::discord::storage as discord_storage; // Importamos el storage de discord
 use esp_idf_svc::sys::{
     heap_caps_get_total_size, heap_caps_get_free_size, MALLOC_CAP_8BIT,
     nvs_get_stats, nvs_stats_t,
     esp_wifi_sta_get_ap_info, wifi_ap_record_t
 };
+use std::net::TcpStream;
+use std::time::{Duration, Instant};
+use std::sync::Mutex;
+
+lazy_static::lazy_static! {
+    static ref INTERNET_STATUS: Mutex<(bool, Option<Instant>)> = Mutex::new((false, None));
+}
+
+fn check_internet_cached() -> bool {
+    let mut status = INTERNET_STATUS.lock().unwrap();
+    let now = Instant::now();
+    if let Some(last_check) = status.1 {
+        if now.duration_since(last_check).as_secs() < 10 {
+            return status.0;
+        }
+    }
+    let has_net = match TcpStream::connect_timeout(&"8.8.8.8:53".parse().unwrap(), Duration::from_secs(1)) {
+        Ok(_) => true,
+        Err(_) => false,
+    };
+    *status = (has_net, Some(now));
+    has_net
+}
 
 #[derive(Serialize)]
 pub struct SystemStatus {
     pub wifi_connected: bool,
+    pub has_internet: bool,
+    pub discord_enabled: bool, // <--- NUEVO CAMPO
     pub wifi_ssid: String,
     pub wifi_rssi: i8,
     pub ap_enabled: bool,
@@ -21,7 +48,8 @@ pub struct SystemStatus {
     pub ws_status: String,
 }
 
-pub fn get_status(wifi: SharedWifi) -> SystemStatus {
+// Añadimos nvs como argumento para poder leer la config de discord
+pub fn get_status(wifi: SharedWifi, nvs: &EspDefaultNvsPartition) -> SystemStatus {
     let ram_total = unsafe { heap_caps_get_total_size(MALLOC_CAP_8BIT as u32) as u32 };
     let ram_free = unsafe { heap_caps_get_free_size(MALLOC_CAP_8BIT as u32) as u32 };
 
@@ -30,7 +58,13 @@ pub fn get_status(wifi: SharedWifi) -> SystemStatus {
         nvs_get_stats(b"nvs\0".as_ptr() as *const _, &mut nvs_stats);
     }
 
+    // Leemos si el bot está habilitado desde la NVS
+    let discord_enabled = discord_storage::get_config(nvs)
+        .map(|c| c.enabled)
+        .unwrap_or(false);
+
     let mut wifi_connected = false;
+    let mut has_internet = false;
     let mut wifi_ssid = String::from("Desconectado");
     let mut wifi_rssi = 0;
     let mut ap_enabled = false;
@@ -38,12 +72,9 @@ pub fn get_status(wifi: SharedWifi) -> SystemStatus {
 
     if let Ok(w) = wifi.lock() {
         wifi_connected = w.is_connected().unwrap_or(false);
-        
         if let Ok(config) = w.get_configuration() {
             match config {
-                Configuration::Client(c) => {
-                    if wifi_connected { wifi_ssid = c.ssid.to_string(); }
-                },
+                Configuration::Client(c) => { if wifi_connected { wifi_ssid = c.ssid.to_string(); } },
                 Configuration::Mixed(c, ap) => {
                     if wifi_connected { wifi_ssid = c.ssid.to_string(); }
                     ap_enabled = true;
@@ -56,19 +87,17 @@ pub fn get_status(wifi: SharedWifi) -> SystemStatus {
                 _ => {}
             }
         }
-            
         if wifi_connected {
             let mut ap_info: wifi_ap_record_t = Default::default();
-            unsafe {
-                if esp_wifi_sta_get_ap_info(&mut ap_info) == 0 {
-                    wifi_rssi = ap_info.rssi;
-                }
-            }
+            unsafe { if esp_wifi_sta_get_ap_info(&mut ap_info) == 0 { wifi_rssi = ap_info.rssi; } }
+            has_internet = check_internet_cached();
         }
     }
 
     SystemStatus {
         wifi_connected,
+        has_internet,
+        discord_enabled, // Enviamos el estado al panel
         wifi_ssid,
         wifi_rssi,
         ap_enabled,

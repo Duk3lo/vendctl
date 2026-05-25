@@ -11,12 +11,10 @@ pub fn start_wifi_manager(wifi: SharedWifi, nvs_partition: EspDefaultNvsPartitio
         .stack_size(8192)
         .spawn(move || {
             thread::sleep(Duration::from_secs(5));
-            
             loop {
                 let is_connected = wifi.lock().map(|w| w.is_connected().unwrap_or(false)).unwrap_or(false);
                 
                 if !is_connected {
-                    
                     let available = scanner::scan_networks(wifi.clone()).unwrap_or_default();
                     let saved_networks = get_saved_networks(&nvs_partition).unwrap_or_default();
                     
@@ -38,7 +36,10 @@ pub fn start_wifi_manager(wifi: SharedWifi, nvs_partition: EspDefaultNvsPartitio
                             }
                         }
                     }
-                    if !se_conecto {
+                    
+                    if se_conecto {
+                        thread::sleep(Duration::from_secs(15));
+                    } else {
                         thread::sleep(Duration::from_secs(10));
                     }
                 } else {

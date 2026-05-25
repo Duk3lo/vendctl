@@ -18,7 +18,6 @@ pub struct ConnectRequest {
 }
 
 pub fn connect_to_wifi(wifi: SharedWifi, nvs: &EspDefaultNvsPartition, req: ConnectRequest) -> Result<()> {
-    println!("Intentando conectar a: {} (Modo: {})", req.ssid, req.auth_type);
 
     let mut wifi_lock = wifi.lock().unwrap();
     let current_config = wifi_lock.get_configuration()?;

@@ -8,6 +8,7 @@ use serde::Deserialize;
 use crate::wifi::storage::{self, SavedNetwork};
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use crate::system;
+use crate::discord::storage::{self as discord_storage, DiscordConfig};
 
 const LOGIN_HTML: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/login.html.gz"));
 const DASHBOARD_HTML: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/dashboard.html.gz"));
@@ -88,17 +89,17 @@ pub fn start_web(wifi: SharedWifi, nvs: EspDefaultNvsPartition) -> Result<EspHtt
 
     server.fn_handler("/api/system/status", Method::Get, {
         let w = wifi.clone();
+        let nvs_clone = nvs.clone();
         move |req| -> Result<()> {
             if !is_authorized(&req) {
                 req.into_response(401, Some("Unauthorized"), &[])?.write_all(b"Sesion expirada")?;
                 return Ok(());
             }
-            let status = system::get_status(w.clone());
+            let status = system::get_status(w.clone(), &nvs_clone);
             let json = serde_json::to_string(&status)?;
             req.into_response(200, Some("OK"), &[("Content-Type", "application/json")])?.write_all(json.as_bytes())?;
             Ok(())
-        }
-    })?;
+    }})?;
 
     server.fn_handler("/api/wifi/scan", Method::Get, {
         let w = wifi.clone();
@@ -228,6 +229,40 @@ pub fn start_web(wifi: SharedWifi, nvs: EspDefaultNvsPartition) -> Result<EspHtt
                 Ok(_) => req.into_response(200, Some("OK"), &[])?.write_all(b"OK")?,
                 Err(_) => req.into_response(500, Some("Error"), &[])?.write_all(b"Error")?,
             };
+            Ok(())
+        }
+    })?;
+
+    server.fn_handler("/api/discord/config", Method::Get, {
+        let nvs_clone = nvs.clone();
+        move |req| -> Result<()> {
+            if !is_authorized(&req) {
+                req.into_response(401, Some("Unauthorized"), &[])?.write_all(b"")?;
+                return Ok(());
+            }
+            let config = discord_storage::get_config(&nvs_clone).unwrap_or_default();
+            let json = serde_json::to_string(&config)?;
+            req.into_response(200, Some("OK"), &[("Content-Type", "application/json")])?.write_all(json.as_bytes())?;
+            Ok(())
+        }
+    })?;
+
+    server.fn_handler("/api/discord/config", Method::Post, {
+        let nvs_clone = nvs.clone();
+        move |mut req| -> Result<()> {
+            if !is_authorized(&req) {
+                req.into_response(401, Some("Unauthorized"), &[])?.write_all(b"")?;
+                return Ok(());
+            }
+            let mut b = [0u8; 2048];
+            let l = req.read(&mut b)?;
+            let d: DiscordConfig = serde_json::from_slice(&b[..l])?;
+            
+            discord_storage::save_config(&nvs_clone, &d)?;
+            
+            // TODO: Aquí pondremos una señal para reiniciar el Bot automáticamente
+            
+            req.into_response(200, Some("OK"), &[])?.write_all(b"Guardado")?;
             Ok(())
         }
     })?;
