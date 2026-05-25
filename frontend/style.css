@@ -61,3 +61,20 @@ h2 { font-size: 18px; color: #ccc; margin-top: 0; }
 /* Botón Desactivado (Conectado) */
 .btn-disabled { background: #28a745; opacity: 0.8; cursor: default; }
 .btn-disabled:hover { background: #28a745; }
+
+.tag-hint {
+    background: #2a2a2a;
+    color: #00ccff;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    border: 1px solid #444;
+    transition: 0.2s;
+}
+
+.tag-hint:hover {
+    background: #0066ff;
+    color: white;
+    border-color: #0088ff;
+}

@@ -2,7 +2,6 @@ use esp_idf_svc::nvs::{EspDefaultNvsPartition, EspNvs};
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 
-// --- REDES WIFI GUARDADAS ---
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SavedNetwork {
     pub ssid: String,

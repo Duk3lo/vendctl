@@ -5,6 +5,8 @@ let currentConnectedSSID = "";
 
 // --- VARIABLES DE DISCORD ---
 let customCommands = [];
+let slashCommands = [];
+const MAX_COMMANDS_TOTAL = 10; // Para no agotar la RAM de ESP32
 
 function handleAuthError(res) {
     if (res.status === 401) {
@@ -263,42 +265,80 @@ async function loadDiscordConfig() {
             document.getElementById("discord-toggle").checked = data.enabled;
             document.getElementById("discord-token").value = data.token;
             document.getElementById("discord-appid").value = data.app_id;
+            
+            // Cargar ambos arrays
             customCommands = data.custom_commands || [];
-            renderCommands();
+            slashCommands = data.slash_commands || [];
+            
+            // Renderizar ambas listas
+            renderCommands('text');
+            renderCommands('slash');
         }
     } catch (e) { }
 }
 
-function renderCommands() {
-    const list = document.getElementById("custom-commands-list");
+function renderCommands(type) {
+    const listId = type === 'text' ? 'custom-commands-list' : 'slash-commands-list';
+    const arr = type === 'text' ? customCommands : slashCommands;
+    const list = document.getElementById(listId);
+    
     list.innerHTML = "";
-    customCommands.forEach((cmd, index) => {
+    arr.forEach((cmd, index) => {
+        let placeholder = type === 'text' ? '!comando' : 'comando_slash';
+        
+        // NUEVO: Agregamos un checkbox si es Slash Command
+        let extraOption = "";
+        if (type === 'slash') {
+            let isChecked = cmd.is_app_cmd ? "checked" : "";
+            extraOption = `
+                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 60px;">
+                    <label style="font-size: 10px; color: #aaa; margin-bottom: 3px;">Global (App)</label>
+                    <input type="checkbox" style="width: 16px; height: 16px; margin: 0;" ${isChecked} 
+                        onchange="updateCmd('${type}', ${index}, 'is_app_cmd', this.checked)">
+                </div>
+            `;
+        }
+
         list.innerHTML += `
-            <div style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center;">
-                <input type="text" value="${cmd.trigger}" onchange="updateCmd(${index}, 'trigger', this.value)" placeholder="!comando" style="width: 30%;">
-                <input type="text" value="${cmd.response}" onchange="updateCmd(${index}, 'response', this.value)" placeholder="Respuesta del bot..." style="flex: 1;">
-                <button class="danger" onclick="removeCommand(${index})">X</button>
+            <div style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center; background: #252525; padding: 8px; border-radius: 6px; border: 1px solid #333;">
+                <input type="text" value="${cmd.trigger}" onchange="updateCmd('${type}', ${index}, 'trigger', this.value)" placeholder="${placeholder}" style="width: 30%; border:none; background:#1e1e1e;">
+                <input type="text" value="${cmd.response}" onchange="updateCmd('${type}', ${index}, 'response', this.value)" placeholder="Respuesta..." style="flex: 1; border:none; background:#1e1e1e;">
+                ${extraOption}
+                <button class="danger" style="padding: 6px 12px;" onclick="removeCommand('${type}', ${index})">X</button>
             </div>
         `;
     });
 }
 
-function addCommandRow() {
-    if (customCommands.length >= 10) {
-        alert("Límite de comandos alcanzado (10) para proteger la RAM del ESP32.");
+function addCommandRow(type) {
+    if (customCommands.length + slashCommands.length >= MAX_COMMANDS_TOTAL) {
+        alert("Límite de comandos alcanzado (Max 10) para proteger la RAM del ESP32.");
         return;
     }
-    customCommands.push({ trigger: "!nuevo", response: "Respuesta..." });
-    renderCommands();
+    
+    if (type === 'text') {
+        customCommands.push({ trigger: "!nuevo", response: "Respuesta...", is_app_cmd: false });
+    } else {
+        slashCommands.push({ trigger: "nuevo", response: "Respuesta...", is_app_cmd: true });
+    }
+    renderCommands(type);
 }
 
-function updateCmd(index, field, value) {
-    customCommands[index][field] = value;
+function updateCmd(type, index, field, value) {
+    if (type === 'text') {
+        customCommands[index][field] = value;
+    } else {
+        slashCommands[index][field] = value;
+    }
 }
 
-function removeCommand(index) {
-    customCommands.splice(index, 1);
-    renderCommands();
+function removeCommand(type, index) {
+    if (type === 'text') {
+        customCommands.splice(index, 1);
+    } else {
+        slashCommands.splice(index, 1);
+    }
+    renderCommands(type);
 }
 
 async function saveDiscordConfig() {
@@ -306,7 +346,8 @@ async function saveDiscordConfig() {
         enabled: document.getElementById("discord-toggle").checked,
         token: document.getElementById("discord-token").value,
         app_id: document.getElementById("discord-appid").value,
-        custom_commands: customCommands
+        custom_commands: customCommands,
+        slash_commands: slashCommands
     };
 
     try {
@@ -314,7 +355,7 @@ async function saveDiscordConfig() {
             method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
         });
         if (handleAuthError(res)) return;
-        if (res.ok) alert("Configuración de Discord guardada correctamente.");
+        if (res.ok) alert("Configuración de Discord guardada. Los cambios se aplican automáticamente.");
     } catch (e) {
         alert("Error guardando configuración de Discord.");
     }
@@ -329,11 +370,18 @@ async function logout() {
 
 async function updateSystemStatus() {
     try {
+        const startPing = Date.now(); // Inicio del contador de Ping Local
         const res = await fetch("/api/system/status");
+        const localPingMs = Date.now() - startPing; // Fin del contador
+
         if (handleAuthError(res)) return;
 
         if (res.ok) {
             const data = await res.json();
+            
+            // --- ACTUALIZACIÓN DE PINGS EN TIEMPO REAL ---
+            document.getElementById("ping-local").innerText = localPingMs;
+            document.getElementById("ping-discord").innerText = data.discord_ping || 0;
 
             if (data.wifi_connected) {
                 currentConnectedSSID = data.wifi_ssid;
@@ -381,16 +429,25 @@ async function updateSystemStatus() {
             }
 
             // --- ACTUALIZACIÓN ESTADO DISCORD ---
+            const dIcon = document.getElementById("discord-icon");
             if (data.discord_enabled) {
-                document.getElementById("sys-discord-status").innerText = "Habilitado";
-                document.getElementById("sys-discord-status").style.color = "#28a745"; // Verde
-                document.getElementById("discord-icon").style.opacity = "1";
-                document.getElementById("sys-discord-detail").innerText = "Listo para conectar";
+                // Verificamos si el Hilo de Rust está ejecutando el bot activamente
+                if (data.discord_running) {
+                    document.getElementById("sys-discord-status").innerText = "Conectado";
+                    document.getElementById("sys-discord-status").style.color = "#28a745"; // Verde
+                    document.getElementById("sys-discord-detail").innerText = "Operativo en Servidor";
+                    dIcon.style.opacity = "1";
+                } else {
+                    document.getElementById("sys-discord-status").innerText = "Conectando...";
+                    document.getElementById("sys-discord-status").style.color = "#ffc107"; // Amarillo
+                    document.getElementById("sys-discord-detail").innerText = "Iniciando WebSocket...";
+                    dIcon.style.opacity = "0.7";
+                }
             } else {
-                document.getElementById("sys-discord-status").innerText = "Deshabilitado";
+                document.getElementById("sys-discord-status").innerText = "Apagado";
                 document.getElementById("sys-discord-status").style.color = "#ff5555"; // Rojo
-                document.getElementById("discord-icon").style.opacity = "0.3";
-                document.getElementById("sys-discord-detail").innerText = "Apagado desde panel";
+                document.getElementById("sys-discord-detail").innerText = "Deshabilitado desde panel";
+                dIcon.style.opacity = "0.3";
             }
 
             const physicalRamKb = 520;
@@ -433,4 +490,10 @@ if (document.getElementById("ap-toggle")) {
 if (document.getElementById("sys-wifi-ssid")) {
     updateSystemStatus();
     setInterval(updateSystemStatus, 3000);
+}
+
+function copyTag(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        console.log("Copiado al portapapeles: " + text);
+    });
 }

@@ -1,4 +1,14 @@
 dependencies:
+  espressif/esp_websocket_client:
+    component_hash: 8280960def8af4f84bc58d2d76f55357cd1387775cbc2e0a6b3ca229aa7e209e
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.3.0
   espressif/mdns:
     component_hash: d8ae7aa491ff97aea1d00d514a1de42cdbaaf1bce10df183968fa5594b904de7
     dependencies:
@@ -14,7 +24,8 @@ dependencies:
       type: idf
     version: 5.5.3
 direct_dependencies:
+- espressif/esp_websocket_client
 - espressif/mdns
-manifest_hash: c3b94c87f4e7f6400185dd295864ac2a11d6dea38982a89ee366397f983b68f6
+manifest_hash: 4003a67989bc0762c85686b57fda9334aa80c804f81594c066b2ad0485fdedf4
 target: esp32
 version: 2.0.0

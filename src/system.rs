@@ -2,7 +2,7 @@ use serde::Serialize;
 use crate::wifi::init::SharedWifi;
 use esp_idf_svc::wifi::Configuration;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
-use crate::discord::storage as discord_storage; // Importamos el storage de discord
+use crate::discord::storage as discord_storage;
 use esp_idf_svc::sys::{
     heap_caps_get_total_size, heap_caps_get_free_size, MALLOC_CAP_8BIT,
     nvs_get_stats, nvs_stats_t,
@@ -11,12 +11,15 @@ use esp_idf_svc::sys::{
 use std::net::TcpStream;
 use std::time::{Duration, Instant};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU32, AtomicBool, Ordering};
 
 lazy_static::lazy_static! {
     static ref INTERNET_STATUS: Mutex<(bool, Option<Instant>)> = Mutex::new((false, None));
+    pub static ref DISCORD_PING_MS: AtomicU32 = AtomicU32::new(0);
+    pub static ref DISCORD_IS_RUNNING: AtomicBool = AtomicBool::new(false);
 }
 
-fn check_internet_cached() -> bool {
+pub fn check_internet_cached() -> bool {
     let mut status = INTERNET_STATUS.lock().unwrap();
     let now = Instant::now();
     if let Some(last_check) = status.1 {
@@ -36,7 +39,9 @@ fn check_internet_cached() -> bool {
 pub struct SystemStatus {
     pub wifi_connected: bool,
     pub has_internet: bool,
-    pub discord_enabled: bool, // <--- NUEVO CAMPO
+    pub discord_enabled: bool,
+    pub discord_running: bool,
+    pub discord_ping: u32,
     pub wifi_ssid: String,
     pub wifi_rssi: i8,
     pub ap_enabled: bool,
@@ -45,23 +50,16 @@ pub struct SystemStatus {
     pub ram_free: u32,
     pub nvs_total: u32,
     pub nvs_used: u32,
-    pub ws_status: String,
 }
 
-// Añadimos nvs como argumento para poder leer la config de discord
 pub fn get_status(wifi: SharedWifi, nvs: &EspDefaultNvsPartition) -> SystemStatus {
     let ram_total = unsafe { heap_caps_get_total_size(MALLOC_CAP_8BIT as u32) as u32 };
     let ram_free = unsafe { heap_caps_get_free_size(MALLOC_CAP_8BIT as u32) as u32 };
 
     let mut nvs_stats: nvs_stats_t = Default::default();
-    unsafe {
-        nvs_get_stats(b"nvs\0".as_ptr() as *const _, &mut nvs_stats);
-    }
+    unsafe { nvs_get_stats(b"nvs\0".as_ptr() as *const _, &mut nvs_stats); }
 
-    // Leemos si el bot está habilitado desde la NVS
-    let discord_enabled = discord_storage::get_config(nvs)
-        .map(|c| c.enabled)
-        .unwrap_or(false);
+    let discord_enabled = discord_storage::get_config(nvs).map(|c| c.enabled).unwrap_or(false);
 
     let mut wifi_connected = false;
     let mut has_internet = false;
@@ -80,10 +78,7 @@ pub fn get_status(wifi: SharedWifi, nvs: &EspDefaultNvsPartition) -> SystemStatu
                     ap_enabled = true;
                     ap_ssid = ap.ssid.to_string();
                 },
-                Configuration::AccessPoint(ap) => {
-                    ap_enabled = true;
-                    ap_ssid = ap.ssid.to_string();
-                }
+                Configuration::AccessPoint(ap) => { ap_enabled = true; ap_ssid = ap.ssid.to_string(); }
                 _ => {}
             }
         }
@@ -95,17 +90,54 @@ pub fn get_status(wifi: SharedWifi, nvs: &EspDefaultNvsPartition) -> SystemStatu
     }
 
     SystemStatus {
-        wifi_connected,
-        has_internet,
-        discord_enabled, // Enviamos el estado al panel
-        wifi_ssid,
-        wifi_rssi,
-        ap_enabled,
-        ap_ssid,
-        ram_total,
-        ram_free,
+        wifi_connected, has_internet, discord_enabled,
+        discord_running: DISCORD_IS_RUNNING.load(Ordering::Relaxed),
+        discord_ping: DISCORD_PING_MS.load(Ordering::Relaxed),
+        wifi_ssid, wifi_rssi, ap_enabled, ap_ssid, ram_total, ram_free,
         nvs_total: nvs_stats.total_entries as u32,
         nvs_used: nvs_stats.used_entries as u32,
-        ws_status: "Desconectado".to_string(), 
     }
+}
+
+pub fn format_placeholders(text: &str) -> String {
+    let mut result = text.to_string();
+
+    let ram_total = unsafe { (heap_caps_get_total_size(MALLOC_CAP_8BIT as u32) / 1024) as u32 };
+    let ram_free = unsafe { (esp_idf_svc::sys::esp_get_free_heap_size() / 1024) as u32 };
+    let ram_used = ram_total - ram_free;
+    let ram_min = unsafe { esp_idf_svc::sys::esp_get_minimum_free_heap_size() / 1024 };
+    result = result.replace("{{RAM_TOTAL}}", &format!("{}KB", ram_total));
+    result = result.replace("{{RAM_FREE}}", &format!("{}KB", ram_free));
+    result = result.replace("{{RAM_USED}}", &format!("{}KB", ram_used));
+    result = result.replace("{{RAM_MIN}}", &format!("{}KB", ram_min));
+
+    let mut nvs_stats: nvs_stats_t = Default::default();
+    unsafe { nvs_get_stats(b"nvs\0".as_ptr() as *const _, &mut nvs_stats); }
+    let nvs_total = nvs_stats.total_entries as u32;
+    let nvs_used = nvs_stats.used_entries as u32;
+    let nvs_free = nvs_total - nvs_used;
+    result = result.replace("{{NVS_TOTAL}}", &format!("{}", nvs_total));
+    result = result.replace("{{NVS_USED}}", &format!("{}", nvs_used));
+    result = result.replace("{{NVS_FREE}}", &format!("{}", nvs_free));
+
+    let ping = DISCORD_PING_MS.load(Ordering::Relaxed);
+    result = result.replace("{{PING}}", &format!("{}ms", ping));
+    let mut ap_info: esp_idf_svc::sys::wifi_ap_record_t = Default::default();
+    let (rssi, ssid) = unsafe {
+        if esp_idf_svc::sys::esp_wifi_sta_get_ap_info(&mut ap_info) == 0 {
+            let s = std::ffi::CStr::from_ptr(ap_info.ssid.as_ptr() as *const _).to_string_lossy().into_owned();
+            (ap_info.rssi, s)
+        } else {
+            (0, "Desconectado".to_string())
+        }
+    };
+    result = result.replace("{{RSSI}}", &format!("{}dBm", rssi));
+    result = result.replace("{{SSID}}", &ssid);
+    let total_secs = unsafe { esp_idf_svc::sys::esp_timer_get_time() / 1_000_000 };
+    let hours = total_secs / 3600;
+    let mins = (total_secs % 3600) / 60;
+    let secs = total_secs % 60;
+    result = result.replace("{{UPTIME}}", &format!("{:02}:{:02}:{:02}", hours, mins, secs));
+
+    result
 }
