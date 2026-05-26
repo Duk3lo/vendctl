@@ -55,19 +55,15 @@ pub struct SystemStatus {
 pub fn get_status(wifi: SharedWifi, nvs: &EspDefaultNvsPartition) -> SystemStatus {
     let ram_total = unsafe { heap_caps_get_total_size(MALLOC_CAP_8BIT as u32) as u32 };
     let ram_free = unsafe { heap_caps_get_free_size(MALLOC_CAP_8BIT as u32) as u32 };
-
     let mut nvs_stats: nvs_stats_t = Default::default();
     unsafe { nvs_get_stats(b"nvs\0".as_ptr() as *const _, &mut nvs_stats); }
-
     let discord_enabled = discord_storage::get_config(nvs).map(|c| c.enabled).unwrap_or(false);
-
     let mut wifi_connected = false;
     let mut has_internet = false;
     let mut wifi_ssid = String::from("Desconectado");
     let mut wifi_rssi = 0;
     let mut ap_enabled = false;
     let mut ap_ssid = String::from("Desactivada");
-
     if let Ok(w) = wifi.lock() {
         wifi_connected = w.is_connected().unwrap_or(false);
         if let Ok(config) = w.get_configuration() {
@@ -100,7 +96,6 @@ pub fn get_status(wifi: SharedWifi, nvs: &EspDefaultNvsPartition) -> SystemStatu
 }
 
 pub fn format_placeholders(text: &str) -> String {
-    // ESTA LÍNEA ES LA MAGIA: Convierte el "\n" literal en un salto de línea real para Discord
     let mut result = text.replace("\\n", "\n");
 
     let ram_total = unsafe { (heap_caps_get_total_size(MALLOC_CAP_8BIT as u32) / 1024) as u32 };
@@ -108,7 +103,6 @@ pub fn format_placeholders(text: &str) -> String {
     let ram_used = ram_total - ram_free;
     let ram_min = unsafe { esp_idf_svc::sys::esp_get_minimum_free_heap_size() / 1024 };
     
-    // AQUÍ QUITAMOS LOS "KB" PARA QUE NO SALGAN DOBLE
     result = result.replace("{{RAM_TOTAL}}", &format!("{}", ram_total));
     result = result.replace("{{RAM_FREE}}", &format!("{}", ram_free));
     result = result.replace("{{RAM_USED}}", &format!("{}", ram_used));
@@ -123,7 +117,6 @@ pub fn format_placeholders(text: &str) -> String {
     result = result.replace("{{NVS_USED}}", &format!("{}", nvs_used));
     result = result.replace("{{NVS_FREE}}", &format!("{}", nvs_free));
 
-    // AQUÍ QUITAMOS EL "ms"
     let ping = DISCORD_PING_MS.load(Ordering::Relaxed);
     result = result.replace("{{PING}}", &format!("{}", ping));
     
@@ -137,10 +130,8 @@ pub fn format_placeholders(text: &str) -> String {
         }
     };
     
-    // AQUÍ QUITAMOS EL "dBm"
     result = result.replace("{{RSSI}}", &format!("{}", rssi));
     result = result.replace("{{SSID}}", &ssid);
-    
     let total_secs = unsafe { esp_idf_svc::sys::esp_timer_get_time() / 1_000_000 };
     let hours = total_secs / 3600;
     let mins = (total_secs % 3600) / 60;

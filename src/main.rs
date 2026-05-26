@@ -7,12 +7,10 @@ fn main() {
     
     let nvs_partition = EspDefaultNvsPartition::take().expect("Error NVS");
     
-    // Iniciar Módulo WiFi y Web
     let wifi_handle = wifi::init::start_wifi(nvs_partition.clone()).expect("Error WiFi");
     let _mdns = wifi::mdns::start_mdns().expect("Error mDNS");
     let _server = web::server::start_web(wifi_handle.clone(), nvs_partition.clone()).expect("Error Servidor");
     
-    // INICIAR HILO DEL BOT DE DISCORD
     discord::bot::start_bot_thread(nvs_partition.clone());
 
     wifi::manager::start_wifi_manager(wifi_handle.clone(), nvs_partition.clone());
