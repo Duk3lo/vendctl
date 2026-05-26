@@ -10,10 +10,20 @@ use esp_idf_svc::io::Write;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use serde::Deserialize;
 
+// =========================================================================
+// CARGA DE ARCHIVOS COMPRIMIDOS (GZIP) DESDE OUT_DIR
+// =========================================================================
 const LOGIN_HTML: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/login.html.gz"));
 const DASHBOARD_HTML: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/dashboard.html.gz"));
-const STYLE_CSS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/style.css.gz"));
-const SCRIPT_JS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/script.js.gz"));
+
+const STYLE_CSS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/css/style.css.gz"));
+
+const JS_AUTH: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/js/auth.js.gz"));
+const JS_UI: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/js/ui.js.gz"));
+const JS_WIFI: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/js/wifi.js.gz"));
+const JS_DISCORD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/js/discord.js.gz"));
+const JS_SYSTEM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/js/system.js.gz"));
+// =========================================================================
 
 #[derive(Deserialize)]
 struct ApToggleReq {
@@ -50,6 +60,7 @@ fn is_authorized(req: &Request<&mut esp_idf_svc::http::server::EspHttpConnection
 pub fn start_web(wifi: SharedWifi, nvs: EspDefaultNvsPartition) -> Result<EspHttpServer<'static>> {
     let mut server = EspHttpServer::new(&Configuration::default())?;
 
+    // --- RUTAS DE REDIRECCIÓN Y HTML ---
     server.fn_handler("/", Method::Get, |req| -> Result<()> {
         req.into_response(302, Some("Found"), &[("Location", "/login")])?
             .write_all(b"")?;
@@ -66,45 +77,6 @@ pub fn start_web(wifi: SharedWifi, nvs: EspDefaultNvsPartition) -> Result<EspHtt
         Ok(())
     })?;
 
-    server.fn_handler("/style.css", Method::Get, |req| -> Result<()> {
-        req.into_response(
-            200,
-            Some("OK"),
-            &[("Content-Encoding", "gzip"), ("Content-Type", "text/css")],
-        )?
-        .write_all(STYLE_CSS)?;
-        Ok(())
-    })?;
-
-    server.fn_handler("/script.js", Method::Get, |req| -> Result<()> {
-        req.into_response(
-            200,
-            Some("OK"),
-            &[
-                ("Content-Encoding", "gzip"),
-                ("Content-Type", "application/javascript"),
-            ],
-        )?
-        .write_all(SCRIPT_JS)?;
-        Ok(())
-    })?;
-
-    server.fn_handler("/api/login", Method::Post, |mut req| -> Result<()> {
-        let mut b = [0u8; 512];
-        let l = req.read(&mut b).unwrap_or(0);
-        let body_str = String::from_utf8_lossy(&b[..l]);
-
-        if body_str.contains("admin") && body_str.contains("12345") {
-            let t = auth::login();
-            let c = format!("session_id={}; HttpOnly; Path=/", t);
-            let success_html = b"<meta http-equiv='refresh' content='0; url=/dashboard' /><script>window.location.href='/dashboard';</script>";
-            req.into_response(200, Some("OK"), &[("Set-Cookie", c.as_str()), ("Content-Type", "text/html")])?.write_all(success_html)?;
-        } else {
-            req.into_response(401, Some("Unauthorized"), &[("Content-Type", "text/html")])?.write_all(b"<script>alert('Credenciales incorrectas'); window.location.href='/login';</script>")?;
-        }
-        Ok(())
-    })?;
-
     server.fn_handler("/dashboard", Method::Get, |req| -> Result<()> {
         if !is_authorized(&req) {
             return req
@@ -118,6 +90,55 @@ pub fn start_web(wifi: SharedWifi, nvs: EspDefaultNvsPartition) -> Result<EspHtt
             &[("Content-Encoding", "gzip"), ("Content-Type", "text/html")],
         )?
         .write_all(DASHBOARD_HTML)?;
+        Ok(())
+    })?;
+
+    // --- RUTAS DE ARCHIVOS ESTÁTICOS (CSS y JS) ---
+    server.fn_handler("/css/style.css", Method::Get, |req| -> Result<()> {
+        req.into_response(200, Some("OK"), &[("Content-Encoding", "gzip"), ("Content-Type", "text/css")])?.write_all(STYLE_CSS)?;
+        Ok(())
+    })?;
+
+    server.fn_handler("/js/auth.js", Method::Get, |req| -> Result<()> {
+        req.into_response(200, Some("OK"), &[("Content-Encoding", "gzip"), ("Content-Type", "application/javascript")])?.write_all(JS_AUTH)?;
+        Ok(())
+    })?;
+
+    server.fn_handler("/js/ui.js", Method::Get, |req| -> Result<()> {
+        req.into_response(200, Some("OK"), &[("Content-Encoding", "gzip"), ("Content-Type", "application/javascript")])?.write_all(JS_UI)?;
+        Ok(())
+    })?;
+
+    server.fn_handler("/js/wifi.js", Method::Get, |req| -> Result<()> {
+        req.into_response(200, Some("OK"), &[("Content-Encoding", "gzip"), ("Content-Type", "application/javascript")])?.write_all(JS_WIFI)?;
+        Ok(())
+    })?;
+
+    server.fn_handler("/js/discord.js", Method::Get, |req| -> Result<()> {
+        req.into_response(200, Some("OK"), &[("Content-Encoding", "gzip"), ("Content-Type", "application/javascript")])?.write_all(JS_DISCORD)?;
+        Ok(())
+    })?;
+
+    server.fn_handler("/js/system.js", Method::Get, |req| -> Result<()> {
+        req.into_response(200, Some("OK"), &[("Content-Encoding", "gzip"), ("Content-Type", "application/javascript")])?.write_all(JS_SYSTEM)?;
+        Ok(())
+    })?;
+
+
+    // --- RUTAS API (BACKEND) ---
+    server.fn_handler("/api/login", Method::Post, |mut req| -> Result<()> {
+        let mut b = [0u8; 512];
+        let l = req.read(&mut b).unwrap_or(0);
+        let body_str = String::from_utf8_lossy(&b[..l]);
+
+        if body_str.contains("admin") && body_str.contains("12345") {
+            let t = auth::login();
+            let c = format!("session_id={}; HttpOnly; Path=/", t);
+            let success_html = b"<meta http-equiv='refresh' content='0; url=/dashboard' /><script>window.location.href='/dashboard';</script>";
+            req.into_response(200, Some("OK"), &[("Set-Cookie", c.as_str()), ("Content-Type", "text/html")])?.write_all(success_html)?;
+        } else {
+            req.into_response(401, Some("Unauthorized"), &[("Content-Type", "text/html")])?.write_all(b"<script>alert('Credenciales incorrectas'); window.location.href='/login';</script>")?;
+        }
         Ok(())
     })?;
 
@@ -317,6 +338,7 @@ pub fn start_web(wifi: SharedWifi, nvs: EspDefaultNvsPartition) -> Result<EspHtt
                     .write_all(b"")?;
                 return Ok(());
             }
+            // ¡MUY IMPORTANTE! Vec! de 5KB para soportar Embeds grandes sin Crash.
             let mut b = vec![0u8; 5120];
             let l = req.read(&mut b)?;
             let d: DiscordConfig = match serde_json::from_slice(&b[..l]) {

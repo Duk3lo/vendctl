@@ -83,40 +83,21 @@ h2 { font-size: 18px; color: #ccc; margin-top: 0; }
 @media (max-width: 800px) {
     body { flex-direction: column; }
     
-    /* El Sidebar pasa a ser Menú Inferior */
-    .sidebar { 
-        width: 100%; 
-        height: auto; 
-        flex-direction: row; 
-        justify-content: space-between; 
-        align-items: center;
-        padding: 10px; 
-        border-right: none; 
-        border-top: 1px solid #333; 
-        position: fixed; 
-        bottom: 0; 
-        z-index: 100; 
-    }
-    .sidebar h2 { display: none; } /* Ocultamos el logo en móvil */
+    .sidebar { width: 100%; height: auto; flex-direction: row; justify-content: space-between; align-items: center; padding: 10px; border-right: none; border-top: 1px solid #333; position: fixed; bottom: 0; z-index: 100; }
+    .sidebar h2 { display: none; }
     .nav-links { flex-direction: row; overflow-x: auto; gap: 10px; }
     .nav-btn { text-align: center; margin-bottom: 0; padding: 10px; font-size: 13px; white-space: nowrap; flex-shrink: 0; }
     .logout { margin-top: 0; margin-left: 10px; }
     
-    /* Ajuste de Contenido */
-    .content { padding: 15px; padding-bottom: 80px; } /* Espacio para el menú inferior */
-    .metrics-grid { grid-template-columns: 1fr; } /* 1 sola columna */
-    .cmd-grids { grid-template-columns: 1fr; } /* 1 sola columna para Discord */
+    .content { padding: 15px; padding-bottom: 80px; }
+    .metrics-grid, .cmd-grids { grid-template-columns: 1fr; }
     
-    /* Comandos de Discord adaptables */
     .cmd-row { flex-direction: column; align-items: stretch; }
-    .cmd-trigger { width: 100%; }
-    .cmd-response { width: 100%; min-height: 60px; }
+    .cmd-trigger, .cmd-response { width: 100%; }
+    .cmd-response { min-height: 60px; }
     .cmd-opt { flex-direction: row; justify-content: space-between; width: 100%; height: auto; padding: 5px 0;}
     .cmd-delete { width: 100%; margin-top: 5px; }
     
-    /* Listas WiFi */
     .wifi-item button { width: 100%; margin-top: 10px; }
-    
-    /* Modales */
     .modal-content { padding: 20px; }
 }
