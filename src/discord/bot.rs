@@ -177,13 +177,71 @@ fn process_discord_event(v: Value, tx: &mpsc::Sender<BotEvent>) {
     }
 }
 
+fn build_message_payload(text: &str) -> Value {
+    let mut title: Option<String> = None;
+    let mut footer: Option<String> = None;
+    let mut img_url: Option<String> = None;
+    let mut color: i64 = 0x0066ff;
+    let mut clean_text = text.to_string();
+
+    if let Some(start) = clean_text.find("[IMG:") {
+        if let Some(end_off) = clean_text[start..].find(']') {
+            let full_tag: &str = &clean_text[start..start + end_off + 1];
+            img_url = Some(full_tag[5..full_tag.len()-1].to_string());
+            clean_text = clean_text.replace(full_tag, "");
+        }
+    }
+
+    if let Some(start) = clean_text.find("[TITLE:") {
+        if let Some(end_off) = clean_text[start..].find(']') {
+            let full_tag: &str = &clean_text[start..start + end_off + 1];
+            title = Some(full_tag[7..full_tag.len()-1].to_string());
+            clean_text = clean_text.replace(full_tag, "");
+        }
+    }
+
+    if let Some(start) = clean_text.find("[FOOTER:") {
+        if let Some(end_off) = clean_text[start..].find(']') {
+            let full_tag: &str = &clean_text[start..start + end_off + 1];
+            footer = Some(full_tag[8..full_tag.len()-1].to_string());
+            clean_text = clean_text.replace(full_tag, "");
+        }
+    }
+
+    if let Some(start) = clean_text.find("[COLOR:#") {
+        if let Some(end_off) = clean_text[start..].find(']') {
+            let full_tag: &str = &clean_text[start..start + end_off + 1];
+            if full_tag.len() > 9 {
+                let hex: &str = &full_tag[8..full_tag.len() - 1];
+                if let Ok(c) = i64::from_str_radix(hex, 16) {
+                    color = c;
+                }
+            }
+            clean_text = clean_text.replace(full_tag, "");
+        }
+    }
+
+    let mut embed = json!({ "color": color });
+    if let Some(t) = title { embed["title"] = json!(t); }
+    if let Some(f) = footer { embed["footer"] = json!({ "text": f }); }
+    if let Some(i) = img_url { embed["image"] = json!({ "url": i }); }
+    
+    let description = clean_text.trim();
+    if !description.is_empty() {
+        embed["description"] = json!(description);
+    }
+
+    json!({ "embeds": [embed] })
+}
+
 fn handle_text_command(content: &str, channel_id: &str, config: &DiscordConfig) {
     let clean_content = content.trim().to_lowercase();
     for cmd in &config.custom_commands {
         if clean_content == cmd.trigger.trim().to_lowercase() {
             let processed_response = format_placeholders(&cmd.response);
+            let msg_payload = build_message_payload(&processed_response);
             let url = format!("{}/channels/{}/messages", API_URL, channel_id);
-            send_http_req(&url, &json!({ "content": processed_response }).to_string(), &config.token, Method::Post);
+            send_http_req(&url, &msg_payload.to_string(), &config.token, Method::Post);
             break;
         }
     }
@@ -194,8 +252,13 @@ fn handle_slash_command(name: &str, id: &str, token: &str, config: &DiscordConfi
         let clean_trigger = cmd.trigger.replace("/", "").replace(" ", "").to_lowercase();
         if name == clean_trigger {
             let processed_response = format_placeholders(&cmd.response);
+            let msg_data = build_message_payload(&processed_response);
+            let payload = json!({
+                "type": 4,
+                "data": msg_data
+            }).to_string();
+            
             let url = format!("{}/interactions/{}/{}/callback", API_URL, id, token);
-            let payload = json!({ "type": 4, "data": { "content": processed_response } }).to_string();
             send_http_req(&url, &payload, &config.token, Method::Post);
             break;
         }

@@ -100,16 +100,19 @@ pub fn get_status(wifi: SharedWifi, nvs: &EspDefaultNvsPartition) -> SystemStatu
 }
 
 pub fn format_placeholders(text: &str) -> String {
-    let mut result = text.to_string();
+    // ESTA LÍNEA ES LA MAGIA: Convierte el "\n" literal en un salto de línea real para Discord
+    let mut result = text.replace("\\n", "\n");
 
     let ram_total = unsafe { (heap_caps_get_total_size(MALLOC_CAP_8BIT as u32) / 1024) as u32 };
     let ram_free = unsafe { (esp_idf_svc::sys::esp_get_free_heap_size() / 1024) as u32 };
     let ram_used = ram_total - ram_free;
     let ram_min = unsafe { esp_idf_svc::sys::esp_get_minimum_free_heap_size() / 1024 };
-    result = result.replace("{{RAM_TOTAL}}", &format!("{}KB", ram_total));
-    result = result.replace("{{RAM_FREE}}", &format!("{}KB", ram_free));
-    result = result.replace("{{RAM_USED}}", &format!("{}KB", ram_used));
-    result = result.replace("{{RAM_MIN}}", &format!("{}KB", ram_min));
+    
+    // AQUÍ QUITAMOS LOS "KB" PARA QUE NO SALGAN DOBLE
+    result = result.replace("{{RAM_TOTAL}}", &format!("{}", ram_total));
+    result = result.replace("{{RAM_FREE}}", &format!("{}", ram_free));
+    result = result.replace("{{RAM_USED}}", &format!("{}", ram_used));
+    result = result.replace("{{RAM_MIN}}", &format!("{}", ram_min));
 
     let mut nvs_stats: nvs_stats_t = Default::default();
     unsafe { nvs_get_stats(b"nvs\0".as_ptr() as *const _, &mut nvs_stats); }
@@ -120,8 +123,10 @@ pub fn format_placeholders(text: &str) -> String {
     result = result.replace("{{NVS_USED}}", &format!("{}", nvs_used));
     result = result.replace("{{NVS_FREE}}", &format!("{}", nvs_free));
 
+    // AQUÍ QUITAMOS EL "ms"
     let ping = DISCORD_PING_MS.load(Ordering::Relaxed);
-    result = result.replace("{{PING}}", &format!("{}ms", ping));
+    result = result.replace("{{PING}}", &format!("{}", ping));
+    
     let mut ap_info: esp_idf_svc::sys::wifi_ap_record_t = Default::default();
     let (rssi, ssid) = unsafe {
         if esp_idf_svc::sys::esp_wifi_sta_get_ap_info(&mut ap_info) == 0 {
@@ -131,8 +136,11 @@ pub fn format_placeholders(text: &str) -> String {
             (0, "Desconectado".to_string())
         }
     };
-    result = result.replace("{{RSSI}}", &format!("{}dBm", rssi));
+    
+    // AQUÍ QUITAMOS EL "dBm"
+    result = result.replace("{{RSSI}}", &format!("{}", rssi));
     result = result.replace("{{SSID}}", &ssid);
+    
     let total_secs = unsafe { esp_idf_svc::sys::esp_timer_get_time() / 1_000_000 };
     let hours = total_secs / 3600;
     let mins = (total_secs % 3600) / 60;
